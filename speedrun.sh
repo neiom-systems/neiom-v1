@@ -240,12 +240,12 @@ python tools/llama/build_dataset.py \
 echo ""
 echo "Step 12: Starting fine-tuning with LoRA for Luxembourgish..."
 cd "$SCRIPT_DIR"
-echo "Note: Fine-tuning will run with the Luxembourgish config."
-echo "Training parameters can be adjusted in fish_speech/configs/text2semantic_finetune_luxembourgish.yaml"
+echo "Note: Fine-tuning will run with the optimized Luxembourgish config."
+echo "Training parameters can be adjusted in fish_speech/configs/text2semantic_finetune_luxembourgish_optimized.yaml"
 echo ""
 echo "Starting training..."
 python fish_speech/train.py \
-    --config-name text2semantic_finetune_luxembourgish \
+    --config-name text2semantic_finetune_luxembourgish_optimized \
     project=text2semantic_finetune_luxembourgish \
     +lora@model.model.lora_config=r_8_alpha_16
 
