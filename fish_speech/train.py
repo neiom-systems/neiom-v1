@@ -98,6 +98,34 @@ def train(cfg: DictConfig) -> tuple[dict, dict]:
         if ckpt_path is not None:
             log.info(f"Resuming from checkpoint: {ckpt_path}")
 
+            # If checkpoint was saved with LoRA-only weights, fall back to manual, tolerant load.
+            state = torch.load(ckpt_path, map_location="cpu")
+            state_dict = state.get("state_dict", state)
+            model_state = model.state_dict()
+            missing_keys = [k for k in model_state.keys() if k not in state_dict]
+            mismatched_keys = [
+                k
+                for k in state_dict.keys()
+                if k in model_state and model_state[k].shape != state_dict[k].shape
+            ]
+            if missing_keys or mismatched_keys:
+                log.warning(
+                    f"Checkpoint is missing {len(missing_keys)} parameters and has {len(mismatched_keys)} incompatible tensors. "
+                    "Loading matching weights with strict=False and resuming without checkpoint state."
+                )
+                compatible_state = {
+                    k: v
+                    for k, v in state_dict.items()
+                    if k in model_state and model_state[k].shape == v.shape
+                }
+                err = model.load_state_dict(compatible_state, strict=False)
+                log.info(
+                    f"State dict load result: missing={err.missing_keys}, unexpected={err.unexpected_keys}"
+                )
+                if mismatched_keys:
+                    log.info(f"Skipped {len(mismatched_keys)} mismatched tensors: {mismatched_keys[:5]}...")
+                ckpt_path = None
+
         # resume weights only is disabled for auto-resume
         if cfg.get("resume_weights_only") and auto_resume is False:
             log.info("Resuming weights only!")
