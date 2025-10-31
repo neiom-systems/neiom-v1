@@ -5,7 +5,6 @@ import time
 from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
-from random import Random
 
 import click
 import numpy as np
@@ -15,6 +14,7 @@ from hydra import compose, initialize
 from hydra.utils import instantiate
 from loguru import logger
 from omegaconf import OmegaConf
+from tqdm import tqdm
 
 from fish_speech.utils.file import AUDIO_EXTENSIONS, list_files, load_filelist
 
@@ -41,10 +41,13 @@ logger_format = (
 )
 logger.configure(extra={"rank": f"RANK: {RANK} / {WORLD_SIZE}"})
 logger.remove()
-logger.add(sys.stderr, format=logger_format)
+logger.add(sys.stderr, format=logger_format, level="ERROR")
+
+_GLOBAL_CONFIG_NAME: str | None = None
+_GLOBAL_CHECKPOINT_PATH: str | None = None
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=None)
 def get_model(
     config_name: str = "modded_dac_vq",
     checkpoint_path: str = "checkpoints/openaudio-s1-mini/codec.pth",
@@ -71,13 +74,6 @@ def get_model(
     model.load_state_dict(state_dict, strict=False)
     model.eval()
     model.to(device)
-    
-    # Log model memory footprint
-    if torch.cuda.is_available():
-        model_params = sum(p.numel() for p in model.parameters())
-        model_size_mb = sum(p.numel() * p.element_size() for p in model.parameters()) / 1024**2
-        logger.info(f"Loaded model: {model_params:,} parameters, ~{model_size_mb:.2f}MB")
-        logger.info(f"Model device: {next(model.parameters()).device}, {_get_gpu_memory_info()}")
 
     return model
 
@@ -87,40 +83,18 @@ def process_batch(files: list[Path], model, batch_num: int = 0) -> float:
     return _process_batch_internal(files, model, batch_num)
 
 
-def _get_gpu_memory_info() -> str:
-    """Get detailed GPU memory information for debugging."""
-    if not torch.cuda.is_available():
-        return "CUDA not available"
-    try:
-        device = torch.cuda.current_device()
-        allocated = torch.cuda.memory_allocated(device) / 1024**3  # GB
-        reserved = torch.cuda.memory_reserved(device) / 1024**3  # GB
-        total = torch.cuda.get_device_properties(device).total_memory / 1024**3  # GB
-        free = total - reserved
-        return (f"GPU {device}: allocated={allocated:.2f}GB, reserved={reserved:.2f}GB, "
-                f"free={free:.2f}GB, total={total:.2f}GB")
-    except Exception as e:
-        return f"Error getting GPU memory info: {e}"
+def _model_device(model: torch.nn.Module) -> torch.device:
+    for param in model.parameters():
+        return param.device
+    return torch.device("cpu")
 
 
-def _get_file_info(file: Path) -> str:
-    """Get file size and duration info for debugging."""
-    try:
-        size_mb = file.stat().st_size / 1024**2
-        # Try to get duration if possible
-        try:
-            import soundfile as sf
-            info = sf.info(file)
-            duration = info.duration
-            sr = info.samplerate
-            return f"size={size_mb:.2f}MB, duration={duration:.2f}s, sr={sr}Hz"
-        except:
-            return f"size={size_mb:.2f}MB"
-    except Exception as e:
-        return f"Error getting file info: {e}"
-
-
-def _process_batch_internal(files: list[Path], model, batch_num: int = 0) -> float:
+def _process_batch_internal(
+    files: list[Path],
+    model: torch.nn.Module,
+    batch_num: int = 0,
+    allow_split: bool = True,
+) -> float:
     try:
         return _process_batch_once(files, model, batch_num)
     except (torch.cuda.OutOfMemoryError, RuntimeError) as exc:
@@ -128,56 +102,29 @@ def _process_batch_internal(files: list[Path], model, batch_num: int = 0) -> flo
         if not isinstance(exc, torch.cuda.OutOfMemoryError) and "out of memory" not in error_msg:
             raise
 
-        # Add detailed debugging info
-        logger.error(f"[OOM DEBUG] ========== CUDA OUT OF MEMORY ERROR ==========")
-        logger.error(f"[OOM DEBUG] Exception type: {type(exc).__name__}")
-        logger.error(f"[OOM DEBUG] Exception message: {str(exc)}")
-        logger.error(f"[OOM DEBUG] Batch size: {len(files)}")
-        logger.error(f"[OOM DEBUG] {_get_gpu_memory_info()}")
         if torch.cuda.is_available():
-            try:
-                import traceback
-                logger.error(f"[OOM DEBUG] Traceback (last 3 frames):")
-                tb_lines = traceback.format_exc().split('\n')
-                for line in tb_lines[-6:]:  # Last few lines of traceback
-                    if line.strip():
-                        logger.error(f"[OOM DEBUG] {line}")
-            except:
-                pass
-        if len(files) <= 5:
-            # Log details for small batches
-            for f in files:
-                logger.error(f"[OOM DEBUG] File: {f.name} - {_get_file_info(f)}")
-        else:
-            # For larger batches, just log first and last
-            logger.error(f"[OOM DEBUG] First file: {files[0].name} - {_get_file_info(files[0])}")
-            logger.error(f"[OOM DEBUG] Last file: {files[-1].name} - {_get_file_info(files[-1])}")
-
-        if len(files) == 1:
-            logger.error(
-                f"Out of memory while processing {files[0]}. Skipping this file. "
-                f"File info: {_get_file_info(files[0])}"
-            )
             torch.cuda.empty_cache()
-            return 0.0
 
-        torch.cuda.empty_cache()
-        mid = len(files) // 2
-        left = files[:mid]
-        right = files[mid:]
-        logger.warning(
-            f"Out of memory encountered with batch size {len(files)}. "
-            f"Splitting into {len(left)} and {len(right)}. "
-            f"GPU memory before split: {_get_gpu_memory_info()}"
+        if len(files) > 1 and allow_split:
+            mid = len(files) // 2
+            left = files[:mid]
+            right = files[mid:]
+            return _process_batch_internal(left, model, batch_num, allow_split=True) + _process_batch_internal(
+                right, model, batch_num, allow_split=True
+            )
+
+        if not _GLOBAL_CONFIG_NAME or not _GLOBAL_CHECKPOINT_PATH:
+            raise RuntimeError("Model metadata unavailable for CPU fallback.") from exc
+
+        tqdm.write(
+            f"GPU memory exhausted on '{files[0].name}'. Falling back to CPU for this file."
         )
-        return _process_batch_internal(left, model, batch_num) + _process_batch_internal(right, model, batch_num)
+        cpu_model = get_model(_GLOBAL_CONFIG_NAME, _GLOBAL_CHECKPOINT_PATH, device="cpu")
+        return _process_batch_once(files, cpu_model, batch_num)
 
 
-def _process_batch_once(files: list[Path], model, batch_num: int = 0) -> float:
-    # Log GPU memory before processing batch (only for first few batches to reduce verbosity)
-    if torch.cuda.is_available() and len(files) > 1 and batch_num < 3:
-        logger.info(f"[BATCH DEBUG] Starting batch #{batch_num} of {len(files)} files. {_get_gpu_memory_info()}")
-    
+def _process_batch_once(files: list[Path], model: torch.nn.Module, batch_num: int = 0) -> float:
+    device = _model_device(model)
     wavs = []
     audio_lengths = []
     new_files = []
@@ -208,7 +155,8 @@ def _process_batch_once(files: list[Path], model, batch_num: int = 0) -> float:
         if wav.shape[0] > 1:
             wav = wav.mean(dim=0, keepdim=True)
 
-        wav = torchaudio.functional.resample(wav.cuda(), sr, model.sample_rate)[0]
+        wav = wav.to(device)
+        wav = torchaudio.functional.resample(wav, sr, model.sample_rate)[0]
         total_time += len(wav) / model.sample_rate
         max_length = max(max_length, len(wav))
 
@@ -225,41 +173,23 @@ def _process_batch_once(files: list[Path], model, batch_num: int = 0) -> float:
     for i, wav in enumerate(wavs):
         wavs[i] = torch.nn.functional.pad(wav, (0, max_length - len(wav)), "constant")
 
-    audios = torch.stack(wavs, dim=0)[:, None]
-    audio_lengths = torch.tensor(audio_lengths, device=model.device, dtype=torch.long)
-    
-    # Log memory info before encoding
-    if torch.cuda.is_available():
-        total_samples = sum(audio_lengths.cpu().numpy()) if len(audio_lengths) > 0 else 0
-        logger.info(f"[ENCODE DEBUG] Before encoding: batch_size={len(wavs)}, max_audio_len={max_length}, "
-                    f"total_samples={total_samples}, {_get_gpu_memory_info()}")
+    audios = torch.stack(wavs, dim=0)[:, None].to(device)
+    audio_lengths_tensor = torch.tensor(audio_lengths, device=device, dtype=torch.long)
 
-    # Calculate lengths
-    indices, feature_lengths = model.encode(audios, audio_lengths)
-    
-    # Log memory after encoding
-    if torch.cuda.is_available():
-        logger.info(f"[ENCODE DEBUG] After encoding: {_get_gpu_memory_info()}")
+    indices, feature_lengths = model.encode(audios, audio_lengths_tensor)
 
-    # Save to disk
-    outputs = indices.cpu().numpy()
-    
-    # Log memory after moving to CPU
-    if torch.cuda.is_available():
-        logger.info(f"[ENCODE DEBUG] After moving to CPU: {_get_gpu_memory_info()}")
+    outputs = indices.detach().cpu().numpy()
+    feature_lengths = feature_lengths.detach().cpu().numpy()
 
-    for file, length, feature, audio_length in zip(
-        files, feature_lengths, outputs, audio_lengths
-    ):
+    for file, length, feature in zip(files, feature_lengths, outputs):
         feature = feature[:, :length]
 
         # (T,)
         with open(file.with_suffix(".npy"), "wb") as f:
             np.save(f, feature)
 
-    if torch.cuda.is_available():
+    if device.type == "cuda":
         torch.cuda.empty_cache()
-        logger.info(f"[BATCH DEBUG] After batch completion: {_get_gpu_memory_info()}")
 
     return total_time
 
@@ -282,6 +212,10 @@ def main(
     batch_size: int,
     filelist: Path,
 ):
+    global _GLOBAL_CONFIG_NAME, _GLOBAL_CHECKPOINT_PATH
+    _GLOBAL_CONFIG_NAME = config_name
+    _GLOBAL_CHECKPOINT_PATH = checkpoint_path
+
     if num_workers > 1 and WORLD_SIZE != num_workers:
         assert WORLD_SIZE == 1, "You should either use SLURM or this launcher, not both"
 
@@ -318,29 +252,30 @@ def main(
         return
 
     # This is a worker
-    logger.info(f"Starting worker")
     if filelist:
         files = [i[0] for i in load_filelist(filelist)]
     else:
         files = list_files(folder, AUDIO_EXTENSIONS, recursive=True, sort=False)
 
-    print(f"Found {len(files)} files")
     files = [Path(f) for f in files if not Path(f).with_suffix(".npy").exists()]
 
     total_files = len(files)
     files = files[RANK::WORLD_SIZE]
-    logger.info(f"Processing {len(files)}/{total_files} files")
-
-    # Log initial GPU state
-    if torch.cuda.is_available():
-        logger.info(f"[INIT DEBUG] Initial GPU state: {_get_gpu_memory_info()}")
-        logger.info(f"[INIT DEBUG] Batch size: {batch_size}, Num workers: {num_workers}")
 
     # Batch processing
     total_time = 0
     begin_time = time.time()
     processed_files = 0
     model = get_model(config_name, checkpoint_path)
+
+    show_progress = WORLD_SIZE == 1
+    progress = tqdm(
+        total=len(files),
+        unit="file",
+        dynamic_ncols=True,
+        disable=not show_progress,
+        desc="Extracting tokens",
+    )
 
     for n_batch, idx in enumerate(range(0, len(files), batch_size)):
         batch = files[idx : idx + batch_size]
@@ -349,19 +284,17 @@ def main(
         total_time += batch_time
         processed_files += len(batch)
 
-        if (n_batch + 1) % 10 == 0:
-            eta = (
-                (time.time() - begin_time)
-                / processed_files
-                * (len(files) - processed_files)
-            )
-            logger.info(
-                f"Processed {processed_files} files, {total_time / 3600:.2f} hours of audio, "
-                + f"ETA: {timedelta(seconds=round(eta))}s"
-            )
+        if show_progress:
+            progress.update(len(batch))
+            progress.set_postfix({"hours": f"{total_time / 3600:.2f}"})
 
-    logger.info(
-        f"Finished processing {len(files)} files, {total_time / 3600:.2f} hours of audio"
+    if show_progress:
+        progress.close()
+
+    elapsed = timedelta(seconds=round(time.time() - begin_time))
+    tqdm.write(
+        f"Finished processing {processed_files} files "
+        f"({total_time / 3600:.2f} hours audio) in {elapsed}."
     )
 
 

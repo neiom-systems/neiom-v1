@@ -155,8 +155,38 @@ if [ ! -f "$CODEC_FILE" ]; then
     echo "Please ensure the download in Step 8 completed successfully."
     exit 1
 fi
-VQ_NUM_WORKERS="${VQ_NUM_WORKERS:-8}"
-VQ_BATCH_SIZE="${VQ_BATCH_SIZE:-64}"
+GPU_COUNT=$(python - <<'PY'
+import os
+try:
+    import torch
+    print(torch.cuda.device_count() if torch.cuda.is_available() else 0)
+except Exception:
+    print(0)
+PY
+)
+
+if [ -z "${VQ_NUM_WORKERS:-}" ]; then
+    if [ "$GPU_COUNT" -le 1 ]; then
+        VQ_NUM_WORKERS=1
+        echo "Detected single (or no) GPU; setting VQ_NUM_WORKERS=1 for token extraction."
+    else
+        VQ_NUM_WORKERS="$GPU_COUNT"
+    fi
+else
+    echo "Using user-provided VQ_NUM_WORKERS=${VQ_NUM_WORKERS}."
+fi
+
+if [ -z "${VQ_BATCH_SIZE:-}" ]; then
+    if [ "$GPU_COUNT" -le 1 ]; then
+        VQ_BATCH_SIZE=32
+    else
+        VQ_BATCH_SIZE=64
+    fi
+else
+    echo "Using user-provided VQ_BATCH_SIZE=${VQ_BATCH_SIZE}."
+fi
+
+export VQ_NUM_WORKERS VQ_BATCH_SIZE
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 
 cd "$SCRIPT_DIR"
