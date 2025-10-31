@@ -18,8 +18,21 @@ echo "Script directory: $SCRIPT_DIR"
 echo "Parent directory: $PARENT_DIR"
 echo ""
 
-# Step 1: Create virtual environment
-echo "Step 1: Creating virtual environment..."
+# Step 1: Install system dependencies
+echo "Step 1: Installing system dependencies..."
+echo "Installing portaudio19-dev, libsox-dev, and ffmpeg (required for audio processing)..."
+if command -v apt-get &> /dev/null; then
+    sudo apt-get update -qq
+    sudo apt-get install -y -qq portaudio19-dev libsox-dev ffmpeg || {
+        echo "Warning: Failed to install some system dependencies. Continuing anyway..."
+    }
+else
+    echo "Warning: apt-get not found. Please install portaudio19-dev, libsox-dev, and ffmpeg manually."
+fi
+
+# Step 2: Create virtual environment
+echo ""
+echo "Step 2: Creating virtual environment..."
 cd "$SCRIPT_DIR"
 if [ -d "venv" ]; then
     echo "Virtual environment already exists, skipping creation."
@@ -32,9 +45,9 @@ fi
 echo "Activating virtual environment..."
 source venv/bin/activate
 
-# Step 2: Install neiom-v1 dependencies
+# Step 3: Install neiom-v1 dependencies
 echo ""
-echo "Step 2: Installing neiom-v1 dependencies..."
+echo "Step 3: Installing neiom-v1 dependencies..."
 # Use pip with extras syntax (works in venv, uv sync requires pyproject.toml/uv.lock setup)
 echo "Installing with pip (CUDA 12.8 extras)..."
 pip install --upgrade pip
@@ -47,9 +60,9 @@ echo "Installing dependencies for loudness check (numpy, soundfile, pyloudnorm).
 pip install --upgrade numpy soundfile pyloudnorm
 pip install hf-transfer
 
-# Step 3: Clone audio-preprocess repo adjacently
+# Step 4: Clone audio-preprocess repo adjacently
 echo ""
-echo "Step 3: Cloning audio-preprocess repository..."
+echo "Step 4: Cloning audio-preprocess repository..."
 cd "$PARENT_DIR"
 if [ -d "audio-preprocess" ]; then
     echo "audio-preprocess directory already exists, skipping clone."
@@ -59,24 +72,24 @@ else
     echo "audio-preprocess repository cloned."
 fi
 
-# Step 4: Install audio-preprocess
+# Step 5: Install audio-preprocess
 echo ""
-echo "Step 4: Installing audio-preprocess..."
+echo "Step 5: Installing audio-preprocess..."
 cd "$PARENT_DIR/audio-preprocess"
 pip install -e .
 
-# Step 5: Download and prepare finetuning dataset
+# Step 6: Download and prepare finetuning dataset
 echo ""
-echo "Step 5: Downloading and preparing finetuning dataset..."
+echo "Step 6: Downloading and preparing finetuning dataset..."
 cd "$SCRIPT_DIR"
 python tools/llama/prepare_finetuning_dataset.py \
     --work-dir data \
     --output-dir data \
     --copy-audio
 
-# Step 6: Run loudness normalization
+# Step 7: Run loudness normalization
 echo ""
-echo "Step 6: Running loudness normalization on dataset..."
+echo "Step 7: Running loudness normalization on dataset..."
 # Use fap from audio-preprocess to normalize loudness
 fap loudness-norm data/SPK1 data/SPK1 --overwrite --loudness -23.0
 
@@ -88,14 +101,14 @@ for speaker_dir in data/SPK*/; do
     fi
 done
 
-# Step 7: Run loudness check
+# Step 8: Run loudness check
 echo ""
-echo "Step 7: Running loudness check..."
+echo "Step 8: Running loudness check..."
 python tools/llama/check_loudness.py data --speaker SPK1
 
-# Step 8: Check and download VQGAN weights if needed
+# Step 9: Check and download VQGAN weights if needed
 echo ""
-echo "Step 8: Checking VQGAN weights..."
+echo "Step 9: Checking VQGAN weights..."
 cd "$SCRIPT_DIR"
 CHECKPOINT_DIR="checkpoints/openaudio-s1-mini"
 MODEL_FILE="$CHECKPOINT_DIR/model.pth"
@@ -116,9 +129,9 @@ else
     echo "VQGAN weights downloaded successfully."
 fi
 
-# Step 9: Extract semantic tokens
+# Step 10: Extract semantic tokens
 echo ""
-echo "Step 9: Extracting semantic tokens..."
+echo "Step 10: Extracting semantic tokens..."
 if [ ! -f "$CODEC_FILE" ]; then
     echo "Error: Expected codec weights at $CODEC_FILE but none were found."
     echo "Please ensure the download in Step 8 completed successfully."
@@ -134,9 +147,9 @@ python tools/vqgan/extract_vq.py data \
     --config-name "modded_dac_vq" \
     --checkpoint-path "checkpoints/openaudio-s1-mini/codec.pth"
 
-# Step 10: Pack the dataset into protobuf
+# Step 11: Pack the dataset into protobuf
 echo ""
-echo "Step 10: Packing dataset into protobuf..."
+echo "Step 11: Packing dataset into protobuf..."
 cd "$SCRIPT_DIR"
 python tools/llama/build_dataset.py \
     --input "data" \
@@ -144,9 +157,9 @@ python tools/llama/build_dataset.py \
     --text-extension .lab \
     --num-workers 16
 
-# Step 11: Start fine-tuning with LoRA
+# Step 12: Start fine-tuning with LoRA
 echo ""
-echo "Step 11: Starting fine-tuning with LoRA for Luxembourgish..."
+echo "Step 12: Starting fine-tuning with LoRA for Luxembourgish..."
 cd "$SCRIPT_DIR"
 echo "Note: Fine-tuning will run with the Luxembourgish config."
 echo "Training parameters can be adjusted in fish_speech/configs/text2semantic_finetune_luxembourgish.yaml"
@@ -157,9 +170,9 @@ python fish_speech/train.py \
     project=text2semantic_finetune_luxembourgish \
     +lora@model.model.lora_config=r_8_alpha_16
 
-# Step 12: Clean up checkpoints to save disk space
+# Step 13: Clean up checkpoints to save disk space
 echo ""
-echo "Step 12: Cleaning up checkpoints to save disk space..."
+echo "Step 13: Cleaning up checkpoints to save disk space..."
 cd "$SCRIPT_DIR"
 
 PROJECT_NAME="text2semantic_finetune_luxembourgish"
@@ -213,9 +226,9 @@ else
     echo "Warning: Checkpoint directory $CHECKPOINT_DIR does not exist."
 fi
 
-# Step 13: Merge LoRA weights to regular weights
+# Step 14: Merge LoRA weights to regular weights
 echo ""
-echo "Step 13: Merging LoRA weights to regular weights..."
+echo "Step 14: Merging LoRA weights to regular weights..."
 cd "$SCRIPT_DIR"
 
 PROJECT_NAME="text2semantic_finetune_luxembourgish"
