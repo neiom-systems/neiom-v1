@@ -155,8 +155,8 @@ if [ ! -f "$CODEC_FILE" ]; then
     echo "Please ensure the download in Step 8 completed successfully."
     exit 1
 fi
-VQ_NUM_WORKERS="${VQ_NUM_WORKERS:-1}"
-VQ_BATCH_SIZE="${VQ_BATCH_SIZE:-16}"
+VQ_NUM_WORKERS="${VQ_NUM_WORKERS:-8}"
+VQ_BATCH_SIZE="${VQ_BATCH_SIZE:-64}"
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 
 cd "$SCRIPT_DIR"

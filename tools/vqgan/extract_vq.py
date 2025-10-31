@@ -78,6 +78,36 @@ def get_model(
 
 @torch.inference_mode()
 def process_batch(files: list[Path], model) -> float:
+    return _process_batch_internal(files, model)
+
+
+def _process_batch_internal(files: list[Path], model) -> float:
+    try:
+        return _process_batch_once(files, model)
+    except (torch.cuda.OutOfMemoryError, RuntimeError) as exc:
+        error_msg = str(exc).lower()
+        if not isinstance(exc, torch.cuda.OutOfMemoryError) and "out of memory" not in error_msg:
+            raise
+
+        if len(files) == 1:
+            logger.error(
+                f"Out of memory while processing {files[0]}. Skipping this file."
+            )
+            torch.cuda.empty_cache()
+            return 0.0
+
+        torch.cuda.empty_cache()
+        mid = len(files) // 2
+        left = files[:mid]
+        right = files[mid:]
+        logger.warning(
+            f"Out of memory encountered with batch size {len(files)}. "
+            f"Splitting into {len(left)} and {len(right)}."
+        )
+        return _process_batch_internal(left, model) + _process_batch_internal(right, model)
+
+
+def _process_batch_once(files: list[Path], model) -> float:
     wavs = []
     audio_lengths = []
     new_files = []
@@ -117,6 +147,9 @@ def process_batch(files: list[Path], model) -> float:
         new_files.append(file)
 
     files = new_files
+
+    if len(wavs) == 0:
+        return 0.0
 
     # Pad to max length
     for i, wav in enumerate(wavs):
