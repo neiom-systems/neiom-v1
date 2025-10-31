@@ -12,6 +12,8 @@ from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from lightning.pytorch.strategies import DDPStrategy
 from omegaconf import DictConfig, OmegaConf
+from omegaconf.listconfig import ListConfig
+from torch.serialization import add_safe_globals
 
 os.environ.pop("SLURM_NTASKS", None)
 os.environ.pop("SLURM_JOB_NAME", None)
@@ -99,7 +101,8 @@ def train(cfg: DictConfig) -> tuple[dict, dict]:
             log.info(f"Resuming from checkpoint: {ckpt_path}")
 
             # If checkpoint was saved with LoRA-only weights, fall back to manual, tolerant load.
-            state = torch.load(ckpt_path, map_location="cpu")
+            add_safe_globals([ListConfig])
+            state = torch.load(ckpt_path, map_location="cpu", weights_only=False)
             state_dict = state.get("state_dict", state)
             model_state = model.state_dict()
             missing_keys = [k for k in model_state.keys() if k not in state_dict]
@@ -129,7 +132,8 @@ def train(cfg: DictConfig) -> tuple[dict, dict]:
         # resume weights only is disabled for auto-resume
         if cfg.get("resume_weights_only") and auto_resume is False:
             log.info("Resuming weights only!")
-            ckpt = torch.load(ckpt_path, map_location=model.device)
+            add_safe_globals([ListConfig])
+            ckpt = torch.load(ckpt_path, map_location=model.device, weights_only=False)
             if "state_dict" in ckpt:
                 ckpt = ckpt["state_dict"]
             err = model.load_state_dict(ckpt, strict=False)
