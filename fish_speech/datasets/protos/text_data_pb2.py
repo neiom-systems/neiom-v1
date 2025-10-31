@@ -5,8 +5,9 @@
 """Generated protocol buffer code."""
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import descriptor_pool as _descriptor_pool
+from google.protobuf import message as _message
+from google.protobuf import reflection as _reflection
 from google.protobuf import symbol_database as _symbol_database
-from google.protobuf.internal import builder as _builder
 
 # @@protoc_insertion_point(imports)
 
@@ -17,17 +18,63 @@ DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(
     b'\n\x0ftext-data.proto\x12\ttext_data"\x1b\n\tSemantics\x12\x0e\n\x06values\x18\x01 \x03(\r"B\n\x08Sentence\x12\r\n\x05texts\x18\x01 \x03(\t\x12\'\n\tsemantics\x18\x03 \x03(\x0b\x32\x14.text_data.Semantics"P\n\x08TextData\x12\x0e\n\x06source\x18\x01 \x01(\t\x12\x0c\n\x04name\x18\x02 \x01(\t\x12&\n\tsentences\x18\x04 \x03(\x0b\x32\x13.text_data.Sentence"Q\n\x0bSampledData\x12\x0e\n\x06source\x18\x01 \x01(\t\x12\x0c\n\x04name\x18\x02 \x01(\t\x12$\n\x07samples\x18\x03 \x03(\x0b\x32\x13.text_data.Sentenceb\x06proto3'
 )
 
-_globals = globals()
-_builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
-_builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, "text_data_pb2", _globals)
+_SEMANTICS = DESCRIPTOR.message_types_by_name["Semantics"]
+_SENTENCE = DESCRIPTOR.message_types_by_name["Sentence"]
+_TEXTDATA = DESCRIPTOR.message_types_by_name["TextData"]
+_SAMPLEDDATA = DESCRIPTOR.message_types_by_name["SampledData"]
+
+Semantics = _reflection.GeneratedProtocolMessageType(
+    "Semantics",
+    (_message.Message,),
+    {
+        "DESCRIPTOR": _SEMANTICS,
+        "__module__": "text_data_pb2"
+        # @@protoc_insertion_point(class_scope:text_data.Semantics)
+    },
+)
+_sym_db.RegisterMessage(Semantics)
+
+Sentence = _reflection.GeneratedProtocolMessageType(
+    "Sentence",
+    (_message.Message,),
+    {
+        "DESCRIPTOR": _SENTENCE,
+        "__module__": "text_data_pb2"
+        # @@protoc_insertion_point(class_scope:text_data.Sentence)
+    },
+)
+_sym_db.RegisterMessage(Sentence)
+
+TextData = _reflection.GeneratedProtocolMessageType(
+    "TextData",
+    (_message.Message,),
+    {
+        "DESCRIPTOR": _TEXTDATA,
+        "__module__": "text_data_pb2"
+        # @@protoc_insertion_point(class_scope:text_data.TextData)
+    },
+)
+_sym_db.RegisterMessage(TextData)
+
+SampledData = _reflection.GeneratedProtocolMessageType(
+    "SampledData",
+    (_message.Message,),
+    {
+        "DESCRIPTOR": _SAMPLEDDATA,
+        "__module__": "text_data_pb2"
+        # @@protoc_insertion_point(class_scope:text_data.SampledData)
+    },
+)
+_sym_db.RegisterMessage(SampledData)
+
 if _descriptor._USE_C_DESCRIPTORS == False:
     DESCRIPTOR._options = None
-    _globals["_SEMANTICS"]._serialized_start = 30
-    _globals["_SEMANTICS"]._serialized_end = 57
-    _globals["_SENTENCE"]._serialized_start = 59
-    _globals["_SENTENCE"]._serialized_end = 125
-    _globals["_TEXTDATA"]._serialized_start = 127
-    _globals["_TEXTDATA"]._serialized_end = 207
-    _globals["_SAMPLEDDATA"]._serialized_start = 209
-    _globals["_SAMPLEDDATA"]._serialized_end = 290
+    _SEMANTICS._serialized_start = 30
+    _SEMANTICS._serialized_end = 57
+    _SENTENCE._serialized_start = 59
+    _SENTENCE._serialized_end = 125
+    _TEXTDATA._serialized_start = 127
+    _TEXTDATA._serialized_end = 207
+    _SAMPLEDDATA._serialized_start = 209
+    _SAMPLEDDATA._serialized_end = 290
 # @@protoc_insertion_point(module_scope)
