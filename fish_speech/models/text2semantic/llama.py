@@ -52,6 +52,7 @@ class BaseModelArgs:
 
     # Gradient checkpointing
     use_gradient_checkpointing: bool = True
+    use_kv_cache: bool = True
 
     # Initialize the model
     initializer_range: float = 0.02
@@ -237,6 +238,9 @@ class BaseTransformer(nn.Module):
     def setup_caches(
         self, max_batch_size: int, max_seq_len: int, dtype: torch.dtype = torch.bfloat16
     ):
+        if not getattr(self.config, "use_kv_cache", True):
+            return
+
         if self.max_seq_len >= max_seq_len and self.max_batch_size >= max_batch_size:
             return
 
@@ -615,6 +619,9 @@ class DualARTransformer(BaseTransformer):
     def setup_caches(
         self, max_batch_size: int, max_seq_len: int, dtype: torch.dtype = torch.bfloat16
     ):
+        if not getattr(self.config, "use_kv_cache", True):
+            return
+
         super().setup_caches(max_batch_size, max_seq_len, dtype)
 
         # Fast transformer
@@ -811,7 +818,7 @@ class Attention(nn.Module):
 
         q, k, v = map(lambda x: x.transpose(1, 2), (q, k, v))
 
-        if self.kv_cache is not None:
+        if self.kv_cache is not None and input_pos is not None:
             k, v = self.kv_cache.update(input_pos, k, v)
 
         k = k.repeat_interleave(self.n_head // self.n_local_heads, dim=1)
