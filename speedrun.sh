@@ -97,13 +97,12 @@ python tools/llama/prepare_finetuning_dataset.py \
 # Step 7: Run loudness normalization
 echo ""
 echo "Step 7: Running loudness normalization on dataset..."
-# Use fap from audio-preprocess to normalize loudness
-fap loudness-norm data/SPK1 data/SPK1 --overwrite --loudness -23.0
-
-# If there are other speaker folders, normalize them too
+# Normalize all speaker folders
 for speaker_dir in data/SPK*/; do
-    if [ -d "$speaker_dir" ] && [ "$speaker_dir" != "data/SPK1" ]; then
-        echo "Normalizing loudness for $speaker_dir..."
+    # Remove trailing slash for comparison
+    speaker_clean="${speaker_dir%/}"
+    if [ -d "$speaker_dir" ]; then
+        echo "Normalizing loudness for $speaker_clean..."
         fap loudness-norm "$speaker_dir" "$speaker_dir" --overwrite --loudness -23.0
     fi
 done
