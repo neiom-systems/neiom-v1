@@ -23,23 +23,12 @@ OmegaConf.register_new_resolver("eval", eval)
 # This file is used to convert the audio files to text files using the Whisper model.
 # It's mainly used to generate the training data for the VQ model.
 
-BACKEND = "ffmpeg"
-
-try:
-    torchaudio.set_audio_backend(BACKEND)
-except AttributeError as exc:
-    raise RuntimeError(
-        "torchaudio.set_audio_backend is unavailable. "
-        "Install torchaudio with I/O backend support (e.g., "
-        "pip install --index-url https://download.pytorch.org/whl/cu128 torchaudio)."
-    ) from exc
-except RuntimeError as exc:
-    raise RuntimeError(
-        f"Failed to set torchaudio backend to '{BACKEND}'. "
-        "Ensure ffmpeg/libsox support is installed."
-    ) from exc
-
-backend = BACKEND
+PREFERRED_BACKENDS = (
+    "ffmpeg",
+    "sox_io",
+    "soundfile",
+    None,  # let torchaudio decide as last resort
+)
 
 RANK = int(os.environ.get("SLURM_PROCID", 0))
 WORLD_SIZE = int(os.environ.get("SLURM_NTASKS", 1))
@@ -95,12 +84,25 @@ def process_batch(files: list[Path], model) -> float:
     max_length = total_time = 0
 
     for file in files:
-        try:
-            wav, sr = torchaudio.load(
-                str(file), backend=backend
-            )  # Need to install libsox-dev
-        except Exception as e:
-            logger.error(f"Error reading {file}: {e}")
+        wav = None
+        sr = None
+        last_error = None
+
+        for candidate_backend in PREFERRED_BACKENDS:
+            try:
+                wav, sr = torchaudio.load(
+                    str(file), backend=candidate_backend
+                )  # Need to install libsox-dev
+                break
+            except Exception as e:  # noqa: BLE001
+                last_error = e
+                continue
+
+        if wav is None:
+            logger.error(
+                f"Failed to read {file} with torchaudio backends "
+                f"{PREFERRED_BACKENDS}: {last_error}"
+            )
             continue
 
         if wav.shape[0] > 1:
