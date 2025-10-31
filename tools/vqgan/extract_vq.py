@@ -71,27 +71,92 @@ def get_model(
     model.load_state_dict(state_dict, strict=False)
     model.eval()
     model.to(device)
+    
+    # Log model memory footprint
+    if torch.cuda.is_available():
+        model_params = sum(p.numel() for p in model.parameters())
+        model_size_mb = sum(p.numel() * p.element_size() for p in model.parameters()) / 1024**2
+        logger.info(f"Loaded model: {model_params:,} parameters, ~{model_size_mb:.2f}MB")
+        logger.info(f"Model device: {next(model.parameters()).device}, {_get_gpu_memory_info()}")
 
-    logger.info(f"Loaded model")
     return model
 
 
 @torch.inference_mode()
-def process_batch(files: list[Path], model) -> float:
-    return _process_batch_internal(files, model)
+def process_batch(files: list[Path], model, batch_num: int = 0) -> float:
+    return _process_batch_internal(files, model, batch_num)
 
 
-def _process_batch_internal(files: list[Path], model) -> float:
+def _get_gpu_memory_info() -> str:
+    """Get detailed GPU memory information for debugging."""
+    if not torch.cuda.is_available():
+        return "CUDA not available"
     try:
-        return _process_batch_once(files, model)
+        device = torch.cuda.current_device()
+        allocated = torch.cuda.memory_allocated(device) / 1024**3  # GB
+        reserved = torch.cuda.memory_reserved(device) / 1024**3  # GB
+        total = torch.cuda.get_device_properties(device).total_memory / 1024**3  # GB
+        free = total - reserved
+        return (f"GPU {device}: allocated={allocated:.2f}GB, reserved={reserved:.2f}GB, "
+                f"free={free:.2f}GB, total={total:.2f}GB")
+    except Exception as e:
+        return f"Error getting GPU memory info: {e}"
+
+
+def _get_file_info(file: Path) -> str:
+    """Get file size and duration info for debugging."""
+    try:
+        size_mb = file.stat().st_size / 1024**2
+        # Try to get duration if possible
+        try:
+            import soundfile as sf
+            info = sf.info(file)
+            duration = info.duration
+            sr = info.samplerate
+            return f"size={size_mb:.2f}MB, duration={duration:.2f}s, sr={sr}Hz"
+        except:
+            return f"size={size_mb:.2f}MB"
+    except Exception as e:
+        return f"Error getting file info: {e}"
+
+
+def _process_batch_internal(files: list[Path], model, batch_num: int = 0) -> float:
+    try:
+        return _process_batch_once(files, model, batch_num)
     except (torch.cuda.OutOfMemoryError, RuntimeError) as exc:
         error_msg = str(exc).lower()
         if not isinstance(exc, torch.cuda.OutOfMemoryError) and "out of memory" not in error_msg:
             raise
 
+        # Add detailed debugging info
+        logger.error(f"[OOM DEBUG] ========== CUDA OUT OF MEMORY ERROR ==========")
+        logger.error(f"[OOM DEBUG] Exception type: {type(exc).__name__}")
+        logger.error(f"[OOM DEBUG] Exception message: {str(exc)}")
+        logger.error(f"[OOM DEBUG] Batch size: {len(files)}")
+        logger.error(f"[OOM DEBUG] {_get_gpu_memory_info()}")
+        if torch.cuda.is_available():
+            try:
+                import traceback
+                logger.error(f"[OOM DEBUG] Traceback (last 3 frames):")
+                tb_lines = traceback.format_exc().split('\n')
+                for line in tb_lines[-6:]:  # Last few lines of traceback
+                    if line.strip():
+                        logger.error(f"[OOM DEBUG] {line}")
+            except:
+                pass
+        if len(files) <= 5:
+            # Log details for small batches
+            for f in files:
+                logger.error(f"[OOM DEBUG] File: {f.name} - {_get_file_info(f)}")
+        else:
+            # For larger batches, just log first and last
+            logger.error(f"[OOM DEBUG] First file: {files[0].name} - {_get_file_info(files[0])}")
+            logger.error(f"[OOM DEBUG] Last file: {files[-1].name} - {_get_file_info(files[-1])}")
+
         if len(files) == 1:
             logger.error(
-                f"Out of memory while processing {files[0]}. Skipping this file."
+                f"Out of memory while processing {files[0]}. Skipping this file. "
+                f"File info: {_get_file_info(files[0])}"
             )
             torch.cuda.empty_cache()
             return 0.0
@@ -102,12 +167,17 @@ def _process_batch_internal(files: list[Path], model) -> float:
         right = files[mid:]
         logger.warning(
             f"Out of memory encountered with batch size {len(files)}. "
-            f"Splitting into {len(left)} and {len(right)}."
+            f"Splitting into {len(left)} and {len(right)}. "
+            f"GPU memory before split: {_get_gpu_memory_info()}"
         )
-        return _process_batch_internal(left, model) + _process_batch_internal(right, model)
+        return _process_batch_internal(left, model, batch_num) + _process_batch_internal(right, model, batch_num)
 
 
-def _process_batch_once(files: list[Path], model) -> float:
+def _process_batch_once(files: list[Path], model, batch_num: int = 0) -> float:
+    # Log GPU memory before processing batch (only for first few batches to reduce verbosity)
+    if torch.cuda.is_available() and len(files) > 1 and batch_num < 3:
+        logger.info(f"[BATCH DEBUG] Starting batch #{batch_num} of {len(files)} files. {_get_gpu_memory_info()}")
+    
     wavs = []
     audio_lengths = []
     new_files = []
@@ -157,12 +227,26 @@ def _process_batch_once(files: list[Path], model) -> float:
 
     audios = torch.stack(wavs, dim=0)[:, None]
     audio_lengths = torch.tensor(audio_lengths, device=model.device, dtype=torch.long)
+    
+    # Log memory info before encoding
+    if torch.cuda.is_available():
+        total_samples = sum(audio_lengths.cpu().numpy()) if len(audio_lengths) > 0 else 0
+        logger.info(f"[ENCODE DEBUG] Before encoding: batch_size={len(wavs)}, max_audio_len={max_length}, "
+                    f"total_samples={total_samples}, {_get_gpu_memory_info()}")
 
     # Calculate lengths
     indices, feature_lengths = model.encode(audios, audio_lengths)
+    
+    # Log memory after encoding
+    if torch.cuda.is_available():
+        logger.info(f"[ENCODE DEBUG] After encoding: {_get_gpu_memory_info()}")
 
     # Save to disk
     outputs = indices.cpu().numpy()
+    
+    # Log memory after moving to CPU
+    if torch.cuda.is_available():
+        logger.info(f"[ENCODE DEBUG] After moving to CPU: {_get_gpu_memory_info()}")
 
     for file, length, feature, audio_length in zip(
         files, feature_lengths, outputs, audio_lengths
@@ -175,6 +259,7 @@ def _process_batch_once(files: list[Path], model) -> float:
 
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+        logger.info(f"[BATCH DEBUG] After batch completion: {_get_gpu_memory_info()}")
 
     return total_time
 
@@ -246,6 +331,11 @@ def main(
     files = files[RANK::WORLD_SIZE]
     logger.info(f"Processing {len(files)}/{total_files} files")
 
+    # Log initial GPU state
+    if torch.cuda.is_available():
+        logger.info(f"[INIT DEBUG] Initial GPU state: {_get_gpu_memory_info()}")
+        logger.info(f"[INIT DEBUG] Batch size: {batch_size}, Num workers: {num_workers}")
+
     # Batch processing
     total_time = 0
     begin_time = time.time()
@@ -254,7 +344,7 @@ def main(
 
     for n_batch, idx in enumerate(range(0, len(files), batch_size)):
         batch = files[idx : idx + batch_size]
-        batch_time = process_batch(batch, model)
+        batch_time = process_batch(batch, model, batch_num=n_batch)
 
         total_time += batch_time
         processed_files += len(batch)
