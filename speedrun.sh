@@ -53,6 +53,8 @@ echo "Installing with pip (CUDA 12.8 extras)..."
 pip install --upgrade pip
 # Install with cu128 extra (adjust if you need cu126, cu129, or cpu)
 pip install -e ".[cu128]"
+# Ensure torchaudio includes libsox/ffmpeg backend so list_audio_backends is available
+pip install --no-deps --upgrade --index-url https://download.pytorch.org/whl/cu128 torchaudio
 
 # Install additional dependencies for loudness check
 echo ""
