@@ -9,6 +9,7 @@ from random import Random
 
 import click
 import numpy as np
+import soundfile as sf
 import torch
 import torchaudio
 from hydra import compose, initialize
@@ -33,7 +34,17 @@ try:
 except AttributeError:
     # torchaudio.list_audio_backends() doesn't exist in newer versions
     # Default to soundfile, which should work for most audio formats
+    backends = []
     backend = "soundfile"
+
+try:
+    torchaudio.set_audio_backend(backend)
+    logger.info(f"Using torchaudio backend: {backend}")
+except Exception as exc:  # noqa: BLE001
+    logger.warning(
+        f"Failed to set torchaudio backend to {backend}: {exc}. Falling back to default."
+    )
+    backend = None
 
 RANK = int(os.environ.get("SLURM_PROCID", 0))
 WORLD_SIZE = int(os.environ.get("SLURM_NTASKS", 1))
@@ -94,8 +105,16 @@ def process_batch(files: list[Path], model) -> float:
                 str(file), backend=backend
             )  # Need to install libsox-dev
         except Exception as e:
-            logger.error(f"Error reading {file}: {e}")
-            continue
+            logger.warning(f"torchaudio failed to read {file}: {e}. Falling back to soundfile.")
+            try:
+                data, sr = sf.read(str(file), always_2d=False)
+                if data.ndim == 1:
+                    wav = torch.from_numpy(data).float().unsqueeze(0)
+                else:
+                    wav = torch.from_numpy(data.T).float()
+            except Exception as e2:
+                logger.error(f"Error reading {file} with soundfile: {e2}")
+                continue
 
         if wav.shape[0] > 1:
             wav = wav.mean(dim=0, keepdim=True)
@@ -109,6 +128,10 @@ def process_batch(files: list[Path], model) -> float:
         new_files.append(file)
 
     files = new_files
+
+    if len(wavs) == 0:
+        logger.warning("No valid audio found in current batch; skipping.")
+        return 0.0
 
     # Pad to max length
     for i, wav in enumerate(wavs):

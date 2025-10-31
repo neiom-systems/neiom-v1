@@ -121,8 +121,8 @@ else
     # Install huggingface_hub if not already installed (should be part of dependencies)
     pip install -q huggingface_hub || true
     
-    # Download using huggingface-cli (will use HF_TOKEN from environment)
-    huggingface-cli download fishaudio/openaudio-s1-mini \
+    # Download using latest hf cli (will use HF_TOKEN from environment)
+    hf download fishaudio/openaudio-s1-mini \
         --local-dir "$CHECKPOINT_DIR" \
         --local-dir-use-symlinks False
     
@@ -141,11 +141,21 @@ VQ_NUM_WORKERS="${VQ_NUM_WORKERS:-8}"
 VQ_BATCH_SIZE="${VQ_BATCH_SIZE:-64}"
 
 cd "$SCRIPT_DIR"
-python tools/vqgan/extract_vq.py data \
-    --num-workers "$VQ_NUM_WORKERS" \
-    --batch-size "$VQ_BATCH_SIZE" \
-    --config-name "modded_dac_vq" \
-    --checkpoint-path "checkpoints/openaudio-s1-mini/codec.pth"
+readarray -t SPEAKER_DIRS < <(find data -maxdepth 1 -mindepth 1 -type d -name "SPK*")
+
+if [ ${#SPEAKER_DIRS[@]} -eq 0 ]; then
+    echo "Error: No speaker directories (SPK*) found under data/. Aborting token extraction."
+    exit 1
+fi
+
+for speaker_dir in "${SPEAKER_DIRS[@]}"; do
+    echo "Extracting tokens for ${speaker_dir}..."
+    python tools/vqgan/extract_vq.py "$speaker_dir" \
+        --num-workers "$VQ_NUM_WORKERS" \
+        --batch-size "$VQ_BATCH_SIZE" \
+        --config-name "modded_dac_vq" \
+        --checkpoint-path "checkpoints/openaudio-s1-mini/codec.pth"
+done
 
 # Step 11: Pack the dataset into protobuf
 echo ""
