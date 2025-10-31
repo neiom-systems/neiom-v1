@@ -17,7 +17,8 @@ pyrootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 from fish_speech.utils.file import AUDIO_EXTENSIONS
 
 # register eval resolver
-OmegaConf.register_new_resolver("eval", eval)
+if not OmegaConf.has_resolver("eval"):
+    OmegaConf.register_new_resolver("eval", eval)
 
 
 def load_model(config_name, checkpoint_path, device="cuda"):

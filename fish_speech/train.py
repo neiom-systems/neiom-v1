@@ -25,7 +25,8 @@ torch.set_float32_matmul_precision("high")
 torch.backends.cudnn.allow_tf32 = True
 
 # register eval resolver
-OmegaConf.register_new_resolver("eval", eval)
+if not OmegaConf.has_resolver("eval"):
+    OmegaConf.register_new_resolver("eval", eval)
 
 import fish_speech.utils as utils
 

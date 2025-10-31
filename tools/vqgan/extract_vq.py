@@ -18,8 +18,9 @@ from tqdm import tqdm
 
 from fish_speech.utils.file import AUDIO_EXTENSIONS, list_files, load_filelist
 
-# register eval resolver
-OmegaConf.register_new_resolver("eval", eval)
+# register eval resolver (guard against duplicate registration)
+if not OmegaConf.has_resolver("eval"):
+    OmegaConf.register_new_resolver("eval", eval)
 # This file is used to convert the audio files to text files using the Whisper model.
 # It's mainly used to generate the training data for the VQ model.
 
