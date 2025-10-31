@@ -247,7 +247,7 @@ echo "Starting training..."
 python fish_speech/train.py \
     --config-name text2semantic_finetune_luxembourgish_optimized \
     project=text2semantic_finetune_luxembourgish \
-    +lora@model.model.lora_config=r_8_alpha_16
+    +lora@model.model.lora_config=r_32_alpha_64
 
 # Step 13: Clean up checkpoints to save disk space
 echo ""
