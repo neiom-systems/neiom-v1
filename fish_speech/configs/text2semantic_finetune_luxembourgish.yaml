@@ -80,8 +80,13 @@ model:
 # Callbacks
 callbacks:
   model_checkpoint:
+    dirpath: ${paths.ckpt_dir}
     every_n_train_steps: 1000  # Save every 1000 steps
     save_top_k: 6  # Keep more initially, will clean up to 4 (2000, 4000, + 2 best) after training
+    save_last: true
+    monitor: null
+    mode: max
+    save_on_train_epoch_end: false
   sample_generation:
     _target_: fish_speech.callbacks.sample_preview.SampleGenerationCallback
     sample_text: "Moien, ech sinn OpenAudio. Ech léieren elo fléissend Lëtzebuergesch ze schwätzen."
