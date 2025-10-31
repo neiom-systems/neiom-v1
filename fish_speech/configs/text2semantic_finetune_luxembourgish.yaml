@@ -46,8 +46,8 @@ data:
   _target_: fish_speech.datasets.semantic.SemanticDataModule
   train_dataset: ${train_dataset}
   val_dataset: ${val_dataset}
-  num_workers: 4
-  batch_size: 4
+  num_workers: 8
+  batch_size: 10
   tokenizer: ${tokenizer}
   max_length: ${max_length}
 
@@ -82,4 +82,3 @@ callbacks:
   model_checkpoint:
     every_n_train_steps: 1000  # Save every 1000 steps
     save_top_k: 6  # Keep more initially, will clean up to 4 (2000, 4000, + 2 best) after training
-

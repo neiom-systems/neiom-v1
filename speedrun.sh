@@ -5,10 +5,12 @@ echo "========================================="
 echo "Speedrun Setup Script for Fine-tuning"
 echo "========================================="
 
-# Get the directory where this script is located
+# Get the directory where this script is located (relative path)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Parent directory (where we'll clone audio-preprocess)
 PARENT_DIR="$(dirname "$SCRIPT_DIR")"
+# Make sure we're in the script directory for relative paths
+cd "$SCRIPT_DIR" || exit 1
 # Repository URL for audio-preprocess
 AUDIO_PREPROCESS_REPO="https://github.com/fishaudio/audio-preprocess.git"
 
@@ -46,7 +48,7 @@ fi
 # Install additional dependencies for loudness check
 echo ""
 echo "Installing dependencies for loudness check (numpy, soundfile, pyloudnorm)..."
-pip install numpy soundfile pyloudnorm
+pip install --upgrade numpy soundfile pyloudnorm
 
 # Step 3: Clone audio-preprocess repo adjacently
 echo ""
@@ -71,7 +73,7 @@ echo ""
 echo "Step 5: Downloading and preparing finetuning dataset..."
 cd "$SCRIPT_DIR"
 python tools/llama/prepare_finetuning_dataset.py \
-    --work-dir data/artifacts \
+    --work-dir data \
     --output-dir data \
     --copy-audio
 
@@ -120,10 +122,18 @@ fi
 # Step 9: Extract semantic tokens
 echo ""
 echo "Step 9: Extracting semantic tokens..."
+if [ ! -f "$CODEC_FILE" ]; then
+    echo "Error: Expected codec weights at $CODEC_FILE but none were found."
+    echo "Please ensure the download in Step 8 completed successfully."
+    exit 1
+fi
+VQ_NUM_WORKERS="${VQ_NUM_WORKERS:-8}"
+VQ_BATCH_SIZE="${VQ_BATCH_SIZE:-64}"
+
 cd "$SCRIPT_DIR"
 python tools/vqgan/extract_vq.py data \
-    --num-workers 1 \
-    --batch-size 16 \
+    --num-workers "$VQ_NUM_WORKERS" \
+    --batch-size "$VQ_BATCH_SIZE" \
     --config-name "modded_dac_vq" \
     --checkpoint-path "checkpoints/openaudio-s1-mini/codec.pth"
 
@@ -137,31 +147,9 @@ python tools/llama/build_dataset.py \
     --text-extension .lab \
     --num-workers 16
 
-# Step 11: Verify LLAMA weights are downloaded
+# Step 11: Start fine-tuning with LoRA
 echo ""
-echo "Step 11: Verifying LLAMA weights..."
-cd "$SCRIPT_DIR"
-CHECKPOINT_DIR="checkpoints/openaudio-s1-mini"
-MODEL_FILE="$CHECKPOINT_DIR/model.pth"
-
-if [ -f "$MODEL_FILE" ]; then
-    echo "LLAMA weights (model.pth) already exist at $CHECKPOINT_DIR."
-else
-    echo "LLAMA weights not found. Downloading from Hugging Face..."
-    # Install huggingface_hub if not already installed
-    pip install -q huggingface_hub || true
-    
-    # Download using huggingface-cli (will use HF_TOKEN from environment)
-    huggingface-cli download fishaudio/openaudio-s1-mini \
-        --local-dir "$CHECKPOINT_DIR" \
-        --local-dir-use-symlinks False
-    
-    echo "LLAMA weights downloaded successfully."
-fi
-
-# Step 12: Start fine-tuning with LoRA
-echo ""
-echo "Step 12: Starting fine-tuning with LoRA for Luxembourgish..."
+echo "Step 11: Starting fine-tuning with LoRA for Luxembourgish..."
 cd "$SCRIPT_DIR"
 echo "Note: Fine-tuning will run with the Luxembourgish config."
 echo "Training parameters can be adjusted in fish_speech/configs/text2semantic_finetune_luxembourgish.yaml"
@@ -172,9 +160,9 @@ python fish_speech/train.py \
     project=text2semantic_finetune_luxembourgish \
     +lora@model.model.lora_config=r_8_alpha_16
 
-# Step 13: Clean up checkpoints to save disk space
+# Step 12: Clean up checkpoints to save disk space
 echo ""
-echo "Step 13: Cleaning up checkpoints to save disk space..."
+echo "Step 12: Cleaning up checkpoints to save disk space..."
 cd "$SCRIPT_DIR"
 
 PROJECT_NAME="text2semantic_finetune_luxembourgish"
@@ -228,9 +216,9 @@ else
     echo "Warning: Checkpoint directory $CHECKPOINT_DIR does not exist."
 fi
 
-# Step 14: Merge LoRA weights to regular weights
+# Step 13: Merge LoRA weights to regular weights
 echo ""
-echo "Step 14: Merging LoRA weights to regular weights..."
+echo "Step 13: Merging LoRA weights to regular weights..."
 cd "$SCRIPT_DIR"
 
 PROJECT_NAME="text2semantic_finetune_luxembourgish"
@@ -281,4 +269,3 @@ echo "Summary:"
 echo "  - Merged model saved to: $OUTPUT_DIR"
 echo "  - You can now use this model for inference."
 echo "  - To merge a different checkpoint, see the merge_lora.py command above."
-
