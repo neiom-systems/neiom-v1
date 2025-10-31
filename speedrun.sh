@@ -210,6 +210,26 @@ done
 echo ""
 echo "Step 11: Packing dataset into protobuf..."
 cd "$SCRIPT_DIR"
+
+echo "Debug: verifying protobuf installation before building dataset..."
+python - <<'PY'
+import sys
+try:
+    import google.protobuf
+    version = getattr(google.protobuf, "__version__", "unknown")
+    module_file = getattr(google.protobuf, "__file__", "unknown")
+    print(f"Python version: {sys.version.split()[0]}")
+    print(f"google.protobuf version: {version}")
+    print(f"google.protobuf module path: {module_file}")
+    try:
+        from google.protobuf.internal import builder as _builder
+        print(f"'builder' import succeeded: {_builder}")
+    except Exception as sub_exc:
+        print(f"'builder' import failed: {sub_exc}")
+except Exception as exc:
+    print(f"Failed to import google.protobuf: {exc}")
+PY
+
 python tools/llama/build_dataset.py \
     --input "data" \
     --output "data/protos" \
