@@ -49,6 +49,7 @@ fi
 echo ""
 echo "Installing dependencies for loudness check (numpy, soundfile, pyloudnorm)..."
 pip install --upgrade numpy soundfile pyloudnorm
+pip install hf-transfer
 
 # Step 3: Clone audio-preprocess repo adjacently
 echo ""
