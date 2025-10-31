@@ -122,10 +122,21 @@ else
     # Install huggingface_hub if not already installed (should be part of dependencies)
     pip install -q huggingface_hub || true
     
-    # Download using latest hf cli (will use HF_TOKEN from environment)
-    hf download fishaudio/openaudio-s1-mini \
-        --local-dir "$CHECKPOINT_DIR" \
-        --local-dir-use-symlinks False
+    # Download using huggingface-cli (will use HF_TOKEN from environment)
+    # Try hf CLI first (newer), fallback to huggingface-cli if needed
+    if command -v hf &> /dev/null; then
+        hf download fishaudio/openaudio-s1-mini --local-dir "$CHECKPOINT_DIR"
+    elif command -v huggingface-cli &> /dev/null; then
+        huggingface-cli download fishaudio/openaudio-s1-mini \
+            --local-dir "$CHECKPOINT_DIR" \
+            --local-dir-use-symlinks False
+    else
+        echo "Error: Neither 'hf' nor 'huggingface-cli' found. Installing huggingface_hub..."
+        pip install -q huggingface_hub
+        huggingface-cli download fishaudio/openaudio-s1-mini \
+            --local-dir "$CHECKPOINT_DIR" \
+            --local-dir-use-symlinks False
+    fi
     
     echo "VQGAN weights downloaded successfully."
 fi
