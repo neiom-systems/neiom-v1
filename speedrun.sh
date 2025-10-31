@@ -223,37 +223,35 @@ cd "$SCRIPT_DIR"
 
 PROJECT_NAME="text2semantic_finetune_luxembourgish"
 CHECKPOINT_DIR="results/$PROJECT_NAME/checkpoints"
-OUTPUT_DIR="checkpoints/openaudio-s1-mini-luxembourgish-lora"
+OUTPUT_BASE_DIR="checkpoints/openaudio-s1-mini-luxembourgish"
 
-# Find the latest checkpoint
 if [ -d "$CHECKPOINT_DIR" ]; then
-    LATEST_CHECKPOINT=$(ls -t "$CHECKPOINT_DIR"/step_*.ckpt 2>/dev/null | head -1)
-    
-    if [ -z "$LATEST_CHECKPOINT" ]; then
+    readarray -t MERGE_TARGETS < <(find "$CHECKPOINT_DIR" -maxdepth 1 -name 'step_*.ckpt' -print | sort)
+
+    if [ ${#MERGE_TARGETS[@]} -eq 0 ]; then
         echo "Warning: No checkpoints found in $CHECKPOINT_DIR"
         echo "Skipping LoRA merge. You may need to run training first or merge manually later."
     else
-        echo "Found checkpoint: $LATEST_CHECKPOINT"
-        echo "Merging LoRA weights..."
+        echo "Preparing to merge ${#MERGE_TARGETS[@]} checkpoint(s):"
+        for ckpt in "${MERGE_TARGETS[@]}"; do
+            echo "  - $(basename "$ckpt")"
+        done
+
+        for ckpt in "${MERGE_TARGETS[@]}"; do
+            ckpt_name=$(basename "$ckpt" .ckpt)
+            OUTPUT_DIR="$OUTPUT_BASE_DIR-$ckpt_name"
+
+            echo ""
+            echo "Merging $ckpt into $OUTPUT_DIR..."
+            python tools/llama/merge_lora.py \
+                --lora-config r_8_alpha_16 \
+                --base-weight checkpoints/openaudio-s1-mini \
+                --lora-weight "$ckpt" \
+                --output "$OUTPUT_DIR"
+        done
+
         echo ""
-        echo "Note: The documentation recommends using the earliest checkpoint that meets your requirements"
-        echo "for better performance on out-of-distribution data."
-        echo "To merge a different checkpoint, run:"
-        echo "  python tools/llama/merge_lora.py \\"
-        echo "    --lora-config r_8_alpha_16 \\"
-        echo "    --base-weight checkpoints/openaudio-s1-mini \\"
-        echo "    --lora-weight $CHECKPOINT_DIR/step_XXXXXXXXX.ckpt \\"
-        echo "    --output $OUTPUT_DIR"
-        echo ""
-        
-        python tools/llama/merge_lora.py \
-            --lora-config r_8_alpha_16 \
-            --base-weight checkpoints/openaudio-s1-mini \
-            --lora-weight "$LATEST_CHECKPOINT" \
-            --output "$OUTPUT_DIR"
-        
-        echo ""
-        echo "LoRA weights merged successfully to $OUTPUT_DIR"
+        echo "LoRA merges completed. Outputs stored under $OUTPUT_BASE_DIR-<checkpoint_step>"
     fi
 else
     echo "Warning: Checkpoint directory $CHECKPOINT_DIR does not exist."
