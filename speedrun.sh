@@ -56,7 +56,7 @@ pip install -e ".[cu128]"
 # Ensure torchaudio includes libsox/ffmpeg backend so list_audio_backends is available
 pip install --force-reinstall --no-deps --upgrade --index-url https://download.pytorch.org/whl/cu128 torchaudio
 # Re-pin core dependencies expected by fish-speech
-pip install --force-reinstall "numpy<=1.26.4" "protobuf<3.20"
+pip install --force-reinstall "numpy<=1.26.4" "protobuf==3.19.6"
 
 # Install additional dependencies for loudness check
 echo ""
@@ -83,7 +83,7 @@ echo "Step 5: Installing audio-preprocess..."
 cd "$PARENT_DIR/audio-preprocess"
 pip install -e .
 # Re-apply version constraints after dependency installs
-pip install --force-reinstall "numpy<=1.26.4" "protobuf<3.20"
+pip install --force-reinstall "numpy<=1.26.4" "protobuf==3.19.6"
 
 # Step 6: Download and prepare finetuning dataset
 echo ""
