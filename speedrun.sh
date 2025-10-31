@@ -35,15 +35,11 @@ source venv/bin/activate
 # Step 2: Install neiom-v1 dependencies
 echo ""
 echo "Step 2: Installing neiom-v1 dependencies..."
-# Check if uv is available, if not use pip
-if command -v uv &> /dev/null; then
-    echo "Using uv to install dependencies..."
-    uv pip install -e . --extra cu128  # Assuming CUDA 12.8, adjust if needed
-else
-    echo "Using pip to install dependencies..."
-    pip install --upgrade pip
-    pip install -e .
-fi
+# Use pip with extras syntax (works in venv, uv sync requires pyproject.toml/uv.lock setup)
+echo "Installing with pip (CUDA 12.8 extras)..."
+pip install --upgrade pip
+# Install with cu128 extra (adjust if you need cu126, cu129, or cpu)
+pip install -e ".[cu128]"
 
 # Install additional dependencies for loudness check
 echo ""
