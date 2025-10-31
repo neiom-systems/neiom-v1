@@ -58,6 +58,7 @@ model:
     _target_: fish_speech.models.text2semantic.llama.BaseTransformer.from_pretrained
     path: ${pretrained_ckpt_path}
     load_weights: true
+    use_kv_cache: false
     max_length: ${max_length}
     lora_config: null
 
