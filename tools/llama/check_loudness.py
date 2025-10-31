@@ -133,7 +133,8 @@ def check_directory(data_dir: Path, speaker_folder: str = "SPK1", check_content:
     measure_func = measure_loudness_pyloudnorm if LOUDNORM_AVAILABLE else measure_loudness_rms
     
     for i, audio_file in enumerate(audio_files, 1):
-        if i % 100 == 0:
+        # Only print progress every 5000 files to reduce verbosity
+        if i % 5000 == 0:
             print(f"  Processed {i}/{len(audio_files)} files...", file=sys.stderr)
         
         result = measure_func(audio_file)

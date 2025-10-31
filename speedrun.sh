@@ -107,7 +107,8 @@ done
 # Step 8: Run loudness check
 echo ""
 echo "Step 8: Running loudness check..."
-python tools/llama/check_loudness.py data --speaker SPK1
+# Suppress verbose progress messages, only show final report
+python tools/llama/check_loudness.py data --speaker SPK1 2>&1 | grep -v "Processed.*files" || python tools/llama/check_loudness.py data --speaker SPK1
 
 # Step 9: Check and download VQGAN weights if needed
 echo ""
