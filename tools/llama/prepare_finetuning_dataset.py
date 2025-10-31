@@ -34,6 +34,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
+from dotenv import load_dotenv
 from huggingface_hub import snapshot_download
 
 
@@ -149,7 +150,7 @@ def load_tts_samples(csv_path: Path, wavs_dir: Path, source_prefix: str) -> list
 def prepare_finetuning_format(
     samples: Sequence[Sample],
     output_dir: Path,
-    speakers_per_folder: int = 1,
+    speakers_per_folder: int | None = None,
     speaker_prefix: str = "SPK",
     copy_audio: bool = True,
 ) -> None:
@@ -159,13 +160,47 @@ def prepare_finetuning_format(
     Args:
         samples: List of samples to process
         output_dir: Output directory (will contain SPK1, SPK2, etc. folders)
-        speakers_per_folder: Number of samples per speaker folder
+        speakers_per_folder: Number of samples per speaker folder. If None, all samples go into SPK1.
         speaker_prefix: Prefix for speaker folder names (default: "SPK")
         copy_audio: If True, copy audio files; if False, create symlinks
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Group samples into speaker folders
+    # If speakers_per_folder is None, put all samples in SPK1
+    if speakers_per_folder is None:
+        speaker_dir = output_dir / f"{speaker_prefix}1"
+        speaker_dir.mkdir(exist_ok=True)
+        
+        for sample_item in samples:
+            base_name = sample_item.audio_path.stem
+            
+            # Determine audio extension
+            audio_ext = sample_item.audio_path.suffix
+            if audio_ext not in ['.mp3', '.wav', '.flac']:
+                # Convert to .wav if extension is not supported
+                audio_ext = '.wav'
+            
+            # Create audio file path
+            audio_target = speaker_dir / f"{base_name}{audio_ext}"
+            
+            # Create .lab file path
+            lab_target = speaker_dir / f"{base_name}.lab"
+            
+            # Copy or link audio file
+            if copy_audio:
+                shutil.copy2(sample_item.audio_path, audio_target)
+            else:
+                if audio_target.exists():
+                    audio_target.unlink()
+                os.symlink(sample_item.audio_path.resolve(), audio_target)
+            
+            # Write transcription to .lab file
+            lab_target.write_text(sample_item.text.strip(), encoding="utf-8")
+        
+        print(f"Created {speaker_prefix}1 with {len(samples)} samples")
+        return
+    
+    # Group samples into speaker folders (when speakers_per_folder is specified)
     speaker_idx = 1
     current_speaker_samples = []
     
@@ -180,7 +215,6 @@ def prepare_finetuning_format(
             
             for sample_item in current_speaker_samples:
                 # Use the original audio file name, or create a unique name if needed
-                audio_name = sample_item.audio_path.name
                 base_name = sample_item.audio_path.stem
                 
                 # Determine audio extension
@@ -291,13 +325,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--speakers-per-folder",
         type=int,
-        default=100,
-        help="Number of samples per speaker folder (default: 100).",
+        default=None,
+        help="Number of samples per speaker folder. If None, all samples go into SPK1 (default: None).",
     )
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    # Load environment variables from .env file if it exists
+    load_dotenv()
+    
     args = parse_args(argv)
     token = os.environ.get("HF_TOKEN")
 
