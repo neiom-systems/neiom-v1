@@ -140,6 +140,9 @@ def process_batch(files: list[Path], model) -> float:
         with open(file.with_suffix(".npy"), "wb") as f:
             np.save(f, feature)
 
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
     return total_time
 
 

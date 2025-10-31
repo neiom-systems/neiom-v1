@@ -54,9 +54,9 @@ pip install --upgrade pip
 # Install with cu128 extra (adjust if you need cu126, cu129, or cpu)
 pip install -e ".[cu128]"
 # Ensure torchaudio includes libsox/ffmpeg backend so list_audio_backends is available
-pip install --no-deps --upgrade --index-url https://download.pytorch.org/whl/cu128 torchaudio
+pip install --force-reinstall --no-deps --upgrade --index-url https://download.pytorch.org/whl/cu128 torchaudio
 # Re-pin core dependencies expected by fish-speech
-pip install "numpy<=1.26.4" "protobuf<3.20"
+pip install --force-reinstall "numpy<=1.26.4" "protobuf<3.20"
 
 # Install additional dependencies for loudness check
 echo ""
@@ -83,7 +83,7 @@ echo "Step 5: Installing audio-preprocess..."
 cd "$PARENT_DIR/audio-preprocess"
 pip install -e .
 # Re-apply version constraints after dependency installs
-pip install "numpy<=1.26.4" "protobuf<3.20"
+pip install --force-reinstall "numpy<=1.26.4" "protobuf<3.20"
 
 # Step 6: Download and prepare finetuning dataset
 echo ""
@@ -156,8 +156,9 @@ if [ ! -f "$CODEC_FILE" ]; then
     echo "Please ensure the download in Step 8 completed successfully."
     exit 1
 fi
-VQ_NUM_WORKERS="${VQ_NUM_WORKERS:-8}"
-VQ_BATCH_SIZE="${VQ_BATCH_SIZE:-64}"
+VQ_NUM_WORKERS="${VQ_NUM_WORKERS:-1}"
+VQ_BATCH_SIZE="${VQ_BATCH_SIZE:-16}"
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 
 cd "$SCRIPT_DIR"
 readarray -t SPEAKER_DIRS < <(find data -maxdepth 1 -mindepth 1 -type d -name "SPK*")
