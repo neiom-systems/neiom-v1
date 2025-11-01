@@ -29,6 +29,12 @@ class TextToSemantic(L.LightningModule):
     def forward(self, x):
         return self.model(x)
 
+    def _sanitize_inference_buffers(self):
+        for module in self.modules():
+            for name, buffer in list(module._buffers.items()):
+                if isinstance(buffer, torch.Tensor) and buffer.is_inference():
+                    module._buffers[name] = buffer.clone().detach()
+
     def on_save_checkpoint(self, checkpoint):
         # Save only LoRA parameters
         state_dict = checkpoint["state_dict"]
@@ -113,6 +119,8 @@ class TextToSemantic(L.LightningModule):
             # Key part to make lora work
             # Otherwise the parameters are merged, which lead to incorrect gradients
             self.model.train()
+
+        self._sanitize_inference_buffers()
 
         # Do positive and negative samples in the same batch to speed up training
         labels = batch["labels"]
