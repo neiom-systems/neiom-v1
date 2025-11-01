@@ -34,6 +34,12 @@ import fish_speech.utils as utils
 
 log = utils.RankedLogger(__name__, rank_zero_only=True)
 
+def _sanitize_inference_buffers(module: torch.nn.Module):
+    for name, buffer in list(module._buffers.items()):
+        if isinstance(buffer, torch.Tensor) and buffer.is_inference():
+            module._buffers[name] = buffer.clone().detach()
+    return module
+
 
 @utils.task_wrapper
 def train(cfg: DictConfig) -> tuple[dict, dict]:
@@ -174,7 +180,3 @@ def main(cfg: DictConfig) -> Optional[float]:
 
 if __name__ == "__main__":
     main()
-    def _sanitize_inference_buffers(module: torch.nn.Module):
-        for name, buffer in list(module._buffers.items()):
-            if isinstance(buffer, torch.Tensor) and buffer.is_inference():
-                module._buffers[name] = buffer.clone().detach()
