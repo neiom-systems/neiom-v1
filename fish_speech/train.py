@@ -128,6 +128,7 @@ def train(cfg: DictConfig) -> tuple[dict, dict]:
                 if mismatched_keys:
                     log.info(f"Skipped {len(mismatched_keys)} mismatched tensors: {mismatched_keys[:5]}...")
                 ckpt_path = None
+            model.apply(_sanitize_inference_buffers)
 
         # resume weights only is disabled for auto-resume
         if cfg.get("resume_weights_only") and auto_resume is False:
@@ -139,6 +140,7 @@ def train(cfg: DictConfig) -> tuple[dict, dict]:
             err = model.load_state_dict(ckpt, strict=False)
             log.info(f"Error loading state dict: {err}")
             ckpt_path = None
+            model.apply(_sanitize_inference_buffers)
 
         trainer.fit(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
 
@@ -172,3 +174,7 @@ def main(cfg: DictConfig) -> Optional[float]:
 
 if __name__ == "__main__":
     main()
+    def _sanitize_inference_buffers(module: torch.nn.Module):
+        for name, buffer in list(module._buffers.items()):
+            if isinstance(buffer, torch.Tensor) and buffer.is_inference():
+                module._buffers[name] = buffer.clone().detach()
